@@ -152,11 +152,20 @@ class Injector:
             LOG.info("[fake] button %s down=%s", button, down)
             return
         import uinput  # type: ignore
+        import time
         m = {"left": uinput.BTN_LEFT, "right": uinput.BTN_RIGHT, "middle": uinput.BTN_MIDDLE}
         b = m.get(button)
         if b is None:
             return
+        # Wake the device with a no-op movement so X11/Wayland is paying attention
+        # to this pointer, then emit the button event with an explicit SYN_REPORT.
+        self.mouse.emit(uinput.REL_X, 0, syn=False)
+        self.mouse.emit(uinput.REL_Y, 0)
         self.mouse.emit(b, 1 if down else 0)
+        # Real mice produce a small delay between button down and up; firing them
+        # microseconds apart causes some X11 servers to drop the click entirely.
+        if down:
+            time.sleep(0.012)
 
     def scroll(self, dx: float, dy: float) -> None:
         if self.fake:
@@ -243,7 +252,7 @@ async def advertise_bonjour(port: int) -> Any:
         f"{hostname}._pikeyboard._tcp.local.",
         addresses=[socket.inet_aton(addr)],
         port=port,
-        properties={"version": "0.2.1"},
+        properties={"version": "0.2.2"},
         server=f"{hostname}.local.",
     )
     azc = AsyncZeroconf()
