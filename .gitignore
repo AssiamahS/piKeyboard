@@ -1,0 +1,28 @@
+## Xcode
+*.xcodeproj/
+!*.xcodeproj/project.xcworkspace/
+*.xcworkspace/xcuserdata/
+xcuserdata/
+DerivedData/
+build/
+.build/
+*.xcuserstate
+
+## Swift Package Manager
+.swiftpm/
+Package.resolved
+
+## macOS
+.DS_Store
+
+## Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+## Editor
+.vscode/
+.idea/
+*.swp

@@ -1,0 +1,15 @@
+[Unit]
+Description=piKeyboard daemon (remote keyboard/mouse for Raspberry Pi)
+After=network-online.target avahi-daemon.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/pikeyboard/.venv/bin/python /opt/pikeyboard/pikeyboard_daemon.py
+Restart=on-failure
+RestartSec=2
+User=root
+Environment=PIKEYBOARD_PORT=8765
+
+[Install]
+WantedBy=multi-user.target
