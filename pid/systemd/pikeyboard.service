@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/opt/pikeyboard/.venv/bin/python /opt/pikeyboard/pikeyboard_daemon.py
+ExecStart=/opt/pikeyboard/.venv/bin/python /opt/pikeyboard/pid/pikeyboard_daemon.py
 Restart=on-failure
 RestartSec=2
 User=root

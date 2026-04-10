@@ -208,19 +208,37 @@ async def handle(websocket, injector: Injector) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Bonjour
+# Bonjour (async — required for zeroconf 0.130+ when called inside an asyncio loop)
 # ---------------------------------------------------------------------------
 
-def advertise_bonjour(port: int) -> Any:
+async def advertise_bonjour(port: int) -> Any:
     try:
-        from zeroconf import ServiceInfo, Zeroconf  # type: ignore
+        from zeroconf.asyncio import AsyncServiceInfo, AsyncZeroconf  # type: ignore
     except ImportError:
         LOG.warning("zeroconf not installed; skipping advertisement (pip install zeroconf)")
         return None
 
     hostname = socket.gethostname()
-    addr = socket.gethostbyname(hostname)
-    info = ServiceInfo(
+    # Pick the first non-loopback IPv4 we can find. gethostbyname() may return 127.0.1.1.
+    addr = None
+    try:
+        for info_tuple in socket.getaddrinfo(hostname, None, socket.AF_INET):
+            ip = info_tuple[4][0]
+            if not ip.startswith("127."):
+                addr = ip
+                break
+    except socket.gaierror:
+        pass
+    if addr is None:
+        # Fallback: open a UDP socket to a public IP and read our own outbound IP.
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("1.1.1.1", 80))
+            addr = s.getsockname()[0]
+        finally:
+            s.close()
+
+    info = AsyncServiceInfo(
         "_pikeyboard._tcp.local.",
         f"{hostname}._pikeyboard._tcp.local.",
         addresses=[socket.inet_aton(addr)],
@@ -228,10 +246,10 @@ def advertise_bonjour(port: int) -> Any:
         properties={"version": "0.1.0"},
         server=f"{hostname}.local.",
     )
-    zc = Zeroconf()
-    zc.register_service(info)
-    LOG.info("advertised %s on port %d", info.name, port)
-    return (zc, info)
+    azc = AsyncZeroconf()
+    await azc.async_register_service(info)
+    LOG.info("advertised %s on %s:%d", info.name, addr, port)
+    return azc
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +267,7 @@ async def main() -> None:
         sys.exit(2)
 
     injector = Injector(fake=FAKE)
-    bonjour = advertise_bonjour(PORT)
+    bonjour = await advertise_bonjour(PORT)
 
     async def handler(ws):
         await handle(ws, injector)
