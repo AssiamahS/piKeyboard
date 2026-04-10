@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# piKeyboard pre-commit guard.
+# Refuses commits whose subject is `feat:`/`fix:`/`feat!:`/`BREAKING CHANGE:`
+# unless the staged diff includes a MARKETING_VERSION bump in app/project.yml.
+#
+# Bypass with `git commit --no-verify` (avoid for feature commits).
+set -euo pipefail
+
+# Read the prepared message if available
+msg_file=".git/COMMIT_EDITMSG"
+[[ -f "$msg_file" ]] || exit 0
+
+first_line=$(head -n1 "$msg_file")
+
+# Only enforce on feat / fix / breaking commits
+if [[ "$first_line" =~ ^(feat|fix|feat\!|BREAKING\ CHANGE) ]]; then
+    if ! git diff --cached -- app/project.yml | grep -q '^\+.*MARKETING_VERSION'; then
+        cat <<EOF >&2
+
+✗ pre-commit: this is a "${first_line%%:*}" commit but app/project.yml MARKETING_VERSION
+  was not bumped.
+
+  Run one of:
+    scripts/bump.sh patch    # for fix:
+    scripts/bump.sh minor    # for feat:
+    scripts/bump.sh major    # for breaking changes
+
+  Then re-stage and commit.
+
+  (If you really need to skip this, use: git commit --no-verify)
+EOF
+        exit 1
+    fi
+fi
+
+exit 0
