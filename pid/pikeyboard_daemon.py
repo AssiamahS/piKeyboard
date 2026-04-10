@@ -97,6 +97,24 @@ def _xdotool_button(button: str, down: bool) -> bool:
     cmd = "mousedown" if down else "mouseup"
     return _xdotool_run([cmd, btn])
 
+def _xdotool_scroll(dx: float, dy: float) -> bool:
+    """xdotool scroll: button 4 = wheel up, 5 = down, 6 = left, 7 = right.
+    Each `click` is one wheel notch."""
+    ok = True
+    # Vertical
+    iy = int(round(dy))
+    if iy != 0:
+        button = "4" if iy > 0 else "5"
+        repeat = abs(iy)
+        ok = _xdotool_run(["click", "--repeat", str(repeat), button]) and ok
+    # Horizontal
+    ix = int(round(dx))
+    if ix != 0:
+        button = "7" if ix > 0 else "6"
+        repeat = abs(ix)
+        ok = _xdotool_run(["click", "--repeat", str(repeat), button]) and ok
+    return ok
+
 # ---------------------------------------------------------------------------
 # Input injection
 # ---------------------------------------------------------------------------
@@ -249,6 +267,10 @@ class Injector:
         if self.fake:
             LOG.info("[fake] scroll dx=%.1f dy=%.1f", dx, dy)
             return
+        # Prefer xdotool on X11 — uinput REL_WHEEL is sometimes ignored by
+        # libinput for virtual mice.
+        if _xdotool_scroll(dx, dy):
+            return
         import uinput  # type: ignore
         if dy:
             self.mouse.emit(uinput.REL_WHEEL, int(dy), syn=False)
@@ -330,7 +352,7 @@ async def advertise_bonjour(port: int) -> Any:
         f"{hostname}._pikeyboard._tcp.local.",
         addresses=[socket.inet_aton(addr)],
         port=port,
-        properties={"version": "0.2.4"},
+        properties={"version": "0.2.5"},
         server=f"{hostname}.local.",
     )
     azc = AsyncZeroconf()
