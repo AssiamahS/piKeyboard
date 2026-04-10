@@ -21,25 +21,50 @@ struct TrackpadView: View {
                     .stroke(Theme.stroke, lineWidth: 1)
             )
             .overlay(
-                Text("Slide to move")
-                    .font(.caption)
-                    .foregroundStyle(Theme.textMuted)
+                VStack(spacing: 4) {
+                    Text("Slide to move")
+                        .font(.caption)
+                        .foregroundStyle(Theme.textMuted)
+                    Text("Tap to click")
+                        .font(.caption2)
+                        .foregroundStyle(Theme.textMuted.opacity(0.7))
+                }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
+            // SimultaneousGesture lets tap and drag both register without one
+            // swallowing the other. minimumDistance: 5 on the drag means a quick
+            // tap (no movement) only fires the TapGesture.
             .gesture(
-                DragGesture(minimumDistance: 1)
-                    .onChanged { v in
-                        let dx = v.translation.width  - lastTranslation.width
-                        let dy = v.translation.height - lastTranslation.height
-                        lastTranslation = v.translation
-                        if dx != 0 || dy != 0 {
-                            session.send(.mouse(MouseEvent(dx: Double(dx), dy: Double(dy), button: nil, down: nil)))
+                SimultaneousGesture(
+                    TapGesture(count: 1).onEnded {
+                        session.send(.mouse(MouseEvent(dx: 0, dy: 0, button: "left", down: true)))
+                        session.send(.mouse(MouseEvent(dx: 0, dy: 0, button: "left", down: false)))
+                    },
+                    DragGesture(minimumDistance: 5)
+                        .onChanged { v in
+                            let dx = v.translation.width  - lastTranslation.width
+                            let dy = v.translation.height - lastTranslation.height
+                            lastTranslation = v.translation
+                            if dx != 0 || dy != 0 {
+                                session.send(.mouse(MouseEvent(
+                                    dx: Double(dx), dy: Double(dy),
+                                    button: nil, down: nil)))
+                            }
                         }
+                        .onEnded { _ in
+                            lastTranslation = .zero
+                        }
+                )
+            )
+            .simultaneousGesture(
+                TapGesture(count: 2).onEnded {
+                    // Double-tap = double left-click
+                    for _ in 0..<2 {
+                        session.send(.mouse(MouseEvent(dx: 0, dy: 0, button: "left", down: true)))
+                        session.send(.mouse(MouseEvent(dx: 0, dy: 0, button: "left", down: false)))
                     }
-                    .onEnded { _ in
-                        lastTranslation = .zero
-                    }
+                }
             )
     }
 
