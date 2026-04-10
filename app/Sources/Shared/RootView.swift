@@ -111,6 +111,7 @@ private struct ConnectView: View {
                         .padding(10)
                         .background(Theme.surfaceHi)
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .onChange(of: manualHost) { _, _ in session.clearError() }
                         #if os(iOS)
                         .keyboardType(.numbersAndPunctuation)
                         .autocorrectionDisabled()

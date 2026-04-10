@@ -31,12 +31,27 @@ final class PiSession: ObservableObject {
 
     func connect(host: String, port: Int = 8765) {
         disconnect()
-        self.host = host
+        // Strip trailing dots (Bonjour hosts often come back as "raspberrypi.local.")
+        // and any whitespace the user may have pasted in.
+        let cleanHost = host
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            .split(separator: "%").first.map(String.init) ?? ""
+        guard !cleanHost.isEmpty else {
+            self.state = .error("enter a host or IP")
+            return
+        }
+        self.host = cleanHost
         self.port = port
         self.state = .connecting
 
-        guard let url = URL(string: "ws://\(host):\(port)/ws") else {
-            self.state = .error("bad url")
+        var components = URLComponents()
+        components.scheme = "ws"
+        components.host = cleanHost
+        components.port = port
+        components.path = "/ws"
+        guard let url = components.url else {
+            self.state = .error("bad url: \(cleanHost):\(port)")
             return
         }
 
@@ -52,22 +67,24 @@ final class PiSession: ObservableObject {
     }
 
     func connect(endpoint: NWEndpoint) {
-        // Resolve Bonjour endpoint to host:port via NWConnection.
+        self.state = .connecting
+        // If the endpoint is already a hostPort we can short-circuit.
+        if case let .hostPort(h, p) = endpoint {
+            connect(host: hostStringFor(h), port: Int(p.rawValue))
+            return
+        }
+        // Otherwise (Bonjour service), open a probe NWConnection to resolve the
+        // service to a real host:port, then hand off to the WebSocket connect.
         let conn = NWConnection(to: endpoint, using: .tcp)
         conn.stateUpdateHandler = { [weak self] s in
             switch s {
             case .ready:
                 if let remote = conn.currentPath?.remoteEndpoint,
                    case let .hostPort(h, p) = remote {
-                    let hostStr: String
-                    switch h {
-                    case .ipv4(let ip): hostStr = "\(ip)"
-                    case .ipv6(let ip): hostStr = "[\(ip)]"
-                    case .name(let n, _): hostStr = n
-                    @unknown default: hostStr = "\(h)"
-                    }
+                    let hostStr = self?.hostStringFor(h) ?? ""
+                    let port = Int(p.rawValue)
                     Task { @MainActor in
-                        self?.connect(host: hostStr, port: Int(p.rawValue))
+                        self?.connect(host: hostStr, port: port)
                     }
                 }
                 conn.cancel()
@@ -78,6 +95,24 @@ final class PiSession: ObservableObject {
             }
         }
         conn.start(queue: .main)
+    }
+
+    nonisolated private func hostStringFor(_ h: NWEndpoint.Host) -> String {
+        let raw: String
+        switch h {
+        case .ipv4(let ip): raw = "\(ip)"
+        case .ipv6(let ip): raw = "[\(ip)]"
+        case .name(let n, _): raw = n
+        @unknown default: raw = "\(h)"
+        }
+        // Strip zone identifiers like "%en0" that iOS appends when resolving
+        // link-local Bonjour endpoints — they break URLComponents.
+        return raw.split(separator: "%").first.map(String.init) ?? raw
+    }
+
+    /// Reset the error state so the UI doesn't keep showing a stale message.
+    func clearError() {
+        if case .error = state { state = .idle }
     }
 
     func disconnect() {

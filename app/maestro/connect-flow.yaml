@@ -1,0 +1,16 @@
+appId: com.assiamah.piKeyboard
+---
+- launchApp:
+    clearState: true
+- assertVisible: "piKeyboard"
+- assertVisible: "Devices on your network"
+- assertVisible:
+    text: "raspberrypi"
+- tapOn:
+    text: "raspberrypi"
+- assertVisible: "Trackpad"
+- assertVisible: "Connected to .*"
+- tapOn: "Keyboard"
+- assertVisible: "esc"
+- tapOn: "Macros"
+- assertVisible: "Reboot"
