@@ -15,16 +15,22 @@ struct KeyboardView: View {
     private let row4 = ["z","x","c","v","b","n","m"]
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 8) {
             textField
             modifierBar
-            keyRow(row1)
+            navRow
+            // Number row with backspace on the right (like a real keyboard)
+            HStack(spacing: 6) {
+                ForEach(row1, id: \.self) { k in keyButton(k) }
+                specialKey("⌫", flex: 1.4) { session.tap("KEY_BACKSPACE") }
+            }
             keyRow(row2)
             keyRow(row3)
             HStack(spacing: 6) {
                 modKey("⇧", on: $shift)
                 ForEach(row4, id: \.self) { k in keyButton(k) }
-                specialKey("⌫") { session.tap("KEY_BACKSPACE") }
+                specialKey(",") { session.tap("KEY_COMMA") }
+                specialKey(".") { session.tap("KEY_DOT") }
             }
             HStack(spacing: 6) {
                 specialKey("tab", flex: 1) { session.tap("KEY_TAB") }
@@ -32,10 +38,25 @@ struct KeyboardView: View {
                 specialKey("⏎", flex: 1) { session.tap("KEY_ENTER") }
             }
             arrowPad
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, 14)
         .padding(.top, 14)
         .padding(.bottom, 12)
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    /// Common nav keys most people reach for: home, end, page up/down, plus
+    /// quick ctrl-shortcut buttons (^C, ^L) so you don't have to chord on a phone.
+    private var navRow: some View {
+        HStack(spacing: 6) {
+            specialKey("home") { session.tap("KEY_HOME") }
+            specialKey("end")  { session.tap("KEY_END") }
+            specialKey("pgup") { session.tap("KEY_PAGEUP") }
+            specialKey("pgdn") { session.tap("KEY_PAGEDOWN") }
+            specialKey("^C")   { session.tap("KEY_C", modifiers: ["ctrl"]) }
+            specialKey("^L")   { session.tap("KEY_L", modifiers: ["ctrl"]) }
+        }
     }
 
     private var textField: some View {
@@ -88,7 +109,7 @@ struct KeyboardView: View {
         } label: {
             Text(shift ? k.uppercased() : k)
                 .font(.body.weight(.semibold))
-                .frame(maxWidth: .infinity, minHeight: 44)
+                .frame(maxWidth: .infinity, minHeight: 42)
                 .background(Theme.surface)
                 .foregroundStyle(Theme.textPrimary)
                 .clipShape(RoundedRectangle(cornerRadius: Theme.radiusKey, style: .continuous))
@@ -106,7 +127,7 @@ struct KeyboardView: View {
         } label: {
             Text(label)
                 .font(.body.weight(.bold))
-                .frame(maxWidth: .infinity, minHeight: 44)
+                .frame(maxWidth: .infinity, minHeight: 42)
                 .background(on.wrappedValue ? Theme.accentSoft : Theme.surface)
                 .foregroundStyle(on.wrappedValue ? Theme.accent : Theme.textPrimary)
                 .clipShape(RoundedRectangle(cornerRadius: Theme.radiusKey, style: .continuous))
@@ -122,7 +143,7 @@ struct KeyboardView: View {
         Button(action: action) {
             Text(label)
                 .font(.footnote.weight(.semibold))
-                .frame(maxWidth: .infinity, minHeight: 44)
+                .frame(maxWidth: .infinity, minHeight: 42)
                 .background(Theme.surface)
                 .foregroundStyle(Theme.textMuted)
                 .clipShape(RoundedRectangle(cornerRadius: Theme.radiusKey, style: .continuous))
