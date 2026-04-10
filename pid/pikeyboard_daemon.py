@@ -25,6 +25,79 @@ PORT = int(os.environ.get("PIKEYBOARD_PORT", "8765"))
 FAKE = os.environ.get("PIKEYBOARD_FAKE") == "1" or sys.platform == "darwin"
 
 # ---------------------------------------------------------------------------
+# xdotool helpers — preferred path on X11 because XTEST never drops events.
+# ---------------------------------------------------------------------------
+
+import shutil
+import subprocess
+
+_XDOTOOL = shutil.which("xdotool")
+# Find an X display to talk to. The piKeyboard daemon runs as root from
+# systemd, so DISPLAY isn't inherited. Probe :0 first since that's what the
+# Pi desktop uses.
+_X_DISPLAY: Any = None
+_X_AUTH: Any = None
+
+def _detect_x_display() -> None:
+    global _X_DISPLAY, _X_AUTH
+    if _X_DISPLAY is not None:
+        return
+    # Look at processes that have a DISPLAY env var set.
+    try:
+        for pid_dir in os.listdir("/proc"):
+            if not pid_dir.isdigit():
+                continue
+            try:
+                with open(f"/proc/{pid_dir}/environ", "rb") as f:
+                    env = f.read().decode("utf-8", "replace")
+            except (OSError, PermissionError):
+                continue
+            disp = None
+            xauth = None
+            for kv in env.split("\0"):
+                if kv.startswith("DISPLAY="):
+                    disp = kv[len("DISPLAY="):]
+                elif kv.startswith("XAUTHORITY="):
+                    xauth = kv[len("XAUTHORITY="):]
+            if disp:
+                _X_DISPLAY = disp
+                _X_AUTH = xauth
+                LOG.info("xdotool target: DISPLAY=%s XAUTHORITY=%s", disp, xauth)
+                return
+    except OSError:
+        pass
+
+def _xdotool_run(args: list[str]) -> bool:
+    if not _XDOTOOL:
+        return False
+    _detect_x_display()
+    if not _X_DISPLAY:
+        return False
+    env = os.environ.copy()
+    env["DISPLAY"] = _X_DISPLAY
+    if _X_AUTH:
+        env["XAUTHORITY"] = _X_AUTH
+    try:
+        subprocess.run([_XDOTOOL, *args], env=env, check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       timeout=2)
+        return True
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+        return False
+
+def _xdotool_move(dx: int, dy: int) -> bool:
+    if dx == 0 and dy == 0:
+        return True
+    return _xdotool_run(["mousemove_relative", "--", str(dx), str(dy)])
+
+def _xdotool_button(button: str, down: bool) -> bool:
+    btn = {"left": "1", "middle": "2", "right": "3"}.get(button)
+    if btn is None:
+        return False
+    cmd = "mousedown" if down else "mouseup"
+    return _xdotool_run([cmd, btn])
+
+# ---------------------------------------------------------------------------
 # Input injection
 # ---------------------------------------------------------------------------
 
@@ -143,6 +216,9 @@ class Injector:
             if abs(dx) + abs(dy) > 4:
                 LOG.info("[fake] move dx=%.0f dy=%.0f", dx, dy)
             return
+        # Prefer xdotool's relative move on X11.
+        if _xdotool_move(int(dx), int(dy)):
+            return
         import uinput  # type: ignore
         self.mouse.emit(uinput.REL_X, int(dx), syn=False)
         self.mouse.emit(uinput.REL_Y, int(dy))
@@ -151,19 +227,21 @@ class Injector:
         if self.fake:
             LOG.info("[fake] button %s down=%s", button, down)
             return
+        # Prefer xdotool when an X server is reachable — it goes straight to X11
+        # via the XTEST extension and never gets dropped, unlike uinput which has
+        # to round-trip through libinput. Falls back to uinput on Wayland or
+        # if xdotool isn't installed.
+        if _xdotool_button(button, down):
+            return
         import uinput  # type: ignore
         import time
         m = {"left": uinput.BTN_LEFT, "right": uinput.BTN_RIGHT, "middle": uinput.BTN_MIDDLE}
         b = m.get(button)
         if b is None:
             return
-        # Wake the device with a no-op movement so X11/Wayland is paying attention
-        # to this pointer, then emit the button event with an explicit SYN_REPORT.
         self.mouse.emit(uinput.REL_X, 0, syn=False)
         self.mouse.emit(uinput.REL_Y, 0)
         self.mouse.emit(b, 1 if down else 0)
-        # Real mice produce a small delay between button down and up; firing them
-        # microseconds apart causes some X11 servers to drop the click entirely.
         if down:
             time.sleep(0.012)
 
@@ -252,7 +330,7 @@ async def advertise_bonjour(port: int) -> Any:
         f"{hostname}._pikeyboard._tcp.local.",
         addresses=[socket.inet_aton(addr)],
         port=port,
-        properties={"version": "0.2.2"},
+        properties={"version": "0.2.3"},
         server=f"{hostname}.local.",
     )
     azc = AsyncZeroconf()

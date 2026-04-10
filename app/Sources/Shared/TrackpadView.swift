@@ -4,11 +4,6 @@ import SwiftUI
 struct TrackpadView: View {
     @EnvironmentObject var session: PiSession
     @State private var lastTranslation: CGSize = .zero
-    @State private var hasMoved: Bool = false
-    @State private var touchStart: Date = .distantPast
-
-    /// Distance (in points) past which a touch becomes a drag instead of a tap.
-    private let tapSlop: CGFloat = 6
 
     var body: some View {
         VStack(spacing: 12) {
@@ -26,29 +21,15 @@ struct TrackpadView: View {
                     .stroke(Theme.stroke, lineWidth: 1)
             )
             .overlay(
-                VStack(spacing: 4) {
-                    Text("Slide to move")
-                        .font(.caption)
-                        .foregroundStyle(Theme.textMuted)
-                    Text("Tap to click")
-                        .font(.caption2)
-                        .foregroundStyle(Theme.textMuted.opacity(0.7))
-                }
+                Text("Slide to move")
+                    .font(.caption)
+                    .foregroundStyle(Theme.textMuted)
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
             .gesture(
-                DragGesture(minimumDistance: 0)
+                DragGesture(minimumDistance: 1)
                     .onChanged { v in
-                        if !hasMoved {
-                            touchStart = touchStart == .distantPast ? Date() : touchStart
-                            let dist = hypot(v.translation.width, v.translation.height)
-                            if dist > tapSlop {
-                                hasMoved = true
-                                lastTranslation = v.translation
-                            }
-                            return
-                        }
                         let dx = v.translation.width  - lastTranslation.width
                         let dy = v.translation.height - lastTranslation.height
                         lastTranslation = v.translation
@@ -57,14 +38,7 @@ struct TrackpadView: View {
                         }
                     }
                     .onEnded { _ in
-                        // No movement past slop = it was a tap → fire a left click.
-                        if !hasMoved {
-                            session.send(.mouse(MouseEvent(dx: 0, dy: 0, button: "left", down: true)))
-                            session.send(.mouse(MouseEvent(dx: 0, dy: 0, button: "left", down: false)))
-                        }
-                        hasMoved = false
                         lastTranslation = .zero
-                        touchStart = .distantPast
                     }
             )
     }
