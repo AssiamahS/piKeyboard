@@ -1,0 +1,14 @@
+[Unit]
+Description=Deskflow client (cursor + keyboard sharing) for piKeyboard
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/deskflow/server
+ExecStart=/usr/bin/deskflow-client --no-daemon --restart --name %H --debug INFO ${DESKFLOW_SERVER}:24800
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical-session.target
