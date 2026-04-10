@@ -352,7 +352,7 @@ async def advertise_bonjour(port: int) -> Any:
         f"{hostname}._pikeyboard._tcp.local.",
         addresses=[socket.inet_aton(addr)],
         port=port,
-        properties={"version": "0.2.6"},
+        properties={"version": "0.2.7"},
         server=f"{hostname}.local.",
     )
     azc = AsyncZeroconf()

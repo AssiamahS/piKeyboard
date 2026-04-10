@@ -129,51 +129,181 @@ struct TrackpadView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// The Palm Pilot center scroll-ball. Functional middle-click + a tiny
-    /// decorative LED-style dot offset to the upper-left for visual flair.
+    /// The Palm Pilot center scroll-ball. Acts as a **scroll joystick**:
+    /// drag your thumb on the orb and the inner LED-dot follows your finger
+    /// (clamped to a circle). While dragged, the orb continuously fires
+    /// scroll events proportional to how far the dot is pulled from center
+    /// — Angry Birds slingshot mechanics. Quick tap (no drag) = middle click.
+    /// Haptic feedback scales with the tension: the further you pull, the
+    /// harder the bumps. Release = spring back + success haptic.
     private func palmOrb(action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            ZStack {
-                Circle()
-                    .fill(
-                        RadialGradient(
-                            colors: [
-                                Color(white: 0.22),
-                                Color(white: 0.06),
-                            ],
-                            center: .init(x: 0.35, y: 0.35),
-                            startRadius: 2,
-                            endRadius: 38
-                        )
+        InteractiveOrb(
+            onMiddleClick: action,
+            onScroll: { dx, dy in
+                session.send(.scroll(dx: Double(dx), dy: Double(dy)))
+            }
+        )
+    }
+}
+
+#if os(iOS)
+/// Interactive Palm-Pilot-style scroll ball. The "LED" inside is a real
+/// physics-y dot that follows your thumb, fires scroll events while held,
+/// and snaps back on release. Continuous haptic ramp as you stretch.
+private struct InteractiveOrb: View {
+    let onMiddleClick: () -> Void
+    let onScroll: (CGFloat, CGFloat) -> Void
+
+    @State private var dotOffset: CGSize = .zero
+    @State private var isDragging: Bool = false
+    @State private var lastZone: Int = 0
+    @State private var scrollTimer: Timer?
+
+    private let orbSize: CGFloat = 64
+    /// Maximum distance the dot can be pulled from center.
+    private let maxRadius: CGFloat = 18
+    /// Idle resting position of the LED (the static spec from earlier).
+    private let restingOffset = CGSize(width: -10, height: -10)
+
+    var body: some View {
+        ZStack {
+            // Orb body — same look as v0.2.6 palmOrb
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [Color(white: 0.22), Color(white: 0.06)],
+                        center: .init(x: 0.35, y: 0.35),
+                        startRadius: 2, endRadius: 38
                     )
-                    .overlay(
-                        Circle()
-                            .strokeBorder(
-                                LinearGradient(
-                                    colors: [
-                                        Color.white.opacity(0.22),
-                                        Color.black.opacity(0.45),
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                lineWidth: 1.4
-                            )
+                )
+                .overlay(
+                    Circle().strokeBorder(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.22), Color.black.opacity(0.45)],
+                            startPoint: .topLeading, endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1.4
                     )
-                // Tiny inner ring — pure decoration, evokes a hardware sensor
-                Circle()
-                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.8)
-                    .frame(width: 22, height: 22)
-                // The "LED" — never lights up, just a static spec for character
-                Circle()
-                    .fill(Theme.accent.opacity(0.55))
-                    .frame(width: 3.5, height: 3.5)
-                    .offset(x: -10, y: -10)
+                )
+
+            // Decorative inner ring
+            Circle()
+                .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.8)
+                .frame(width: 22, height: 22)
+
+            // The interactive dot — grows + brightens while dragging
+            Circle()
+                .fill(Theme.accent.opacity(isDragging ? 0.95 : 0.55))
+                .shadow(
+                    color: Theme.accent.opacity(isDragging ? 0.6 : 0),
+                    radius: isDragging ? 4 : 0
+                )
+                .frame(
+                    width: isDragging ? 6 : 3.5,
+                    height: isDragging ? 6 : 3.5
+                )
+                .offset(isDragging ? dotOffset : restingOffset)
+                .animation(.interactiveSpring(response: 0.18, dampingFraction: 0.7),
+                           value: dotOffset)
+                .animation(.easeOut(duration: 0.22), value: isDragging)
+        }
+        .frame(width: orbSize, height: orbSize)
+        .contentShape(Circle())
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { v in
+                    handleDragChanged(v.translation)
+                }
+                .onEnded { v in
+                    handleDragEnded(v.translation)
+                }
+        )
+    }
+
+    // MARK: - Gesture handling
+
+    private func handleDragChanged(_ raw: CGSize) {
+        let dist = hypot(raw.width, raw.height)
+
+        if !isDragging {
+            // Decide if this is a tap or a drag
+            if dist < 4 { return }
+            isDragging = true
+            UISelectionFeedbackGenerator().selectionChanged()
+            startScrollTimer()
+        }
+
+        // Clamp the dot to the orb radius
+        let clamped: CGSize
+        if dist > maxRadius {
+            let scale = maxRadius / dist
+            clamped = CGSize(width: raw.width * scale, height: raw.height * scale)
+        } else {
+            clamped = raw
+        }
+        dotOffset = clamped
+
+        // Tension haptic — fire when crossing into a new "zone" further out.
+        // 5 zones = 0..4. The further you pull, the heavier the bump.
+        let normalizedDist = min(dist, maxRadius) / maxRadius
+        let zone = Int(normalizedDist * 5)
+        if zone != lastZone && zone > 0 {
+            let style: UIImpactFeedbackGenerator.FeedbackStyle
+            switch zone {
+            case 1: style = .light
+            case 2: style = .light
+            case 3: style = .medium
+            default: style = .heavy
+            }
+            let gen = UIImpactFeedbackGenerator(style: style)
+            gen.impactOccurred(intensity: CGFloat(normalizedDist))
+        }
+        lastZone = zone
+    }
+
+    private func handleDragEnded(_ raw: CGSize) {
+        if !isDragging {
+            // No drag happened — it was a tap. Fire middle click.
+            onMiddleClick()
+            return
+        }
+        // Snap back with a satisfying notification haptic
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        stopScrollTimer()
+        withAnimation(.spring(response: 0.42, dampingFraction: 0.55)) {
+            dotOffset = .zero
+        }
+        // Wait for the spring animation, then return to resting state
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.42) {
+            isDragging = false
+            lastZone = 0
+        }
+    }
+
+    // MARK: - Continuous scroll while held
+
+    private func startScrollTimer() {
+        scrollTimer?.invalidate()
+        // Fire ~16Hz scroll events while the dot is held off-center
+        scrollTimer = Timer.scheduledTimer(withTimeInterval: 0.06, repeats: true) { _ in
+            // Map dot offset to wheel ticks. dotOffset.height positive = down,
+            // we want that to scroll page down → negative wheel.
+            let speedY = -Double(dotOffset.height) / 6
+            let speedX = Double(dotOffset.width) / 6
+            if abs(speedX) > 0.15 || abs(speedY) > 0.15 {
+                onScroll(CGFloat(speedX), CGFloat(speedY))
             }
         }
-        .buttonStyle(.plain)
-        .frame(width: 64, height: 64)
     }
+
+    private func stopScrollTimer() {
+        scrollTimer?.invalidate()
+        scrollTimer = nil
+    }
+}
+#endif
+
+extension TrackpadView {
 
     #if os(iOS)
     /// Single UIKit view that owns ALL trackpad gestures. Pro trackpad apps
@@ -323,19 +453,21 @@ struct TrackpadView: View {
                 if gr.state == .began { onLongPress() }
             }
 
-            // The 1-finger pan and the tap recognizer normally fight: a tap
-            // is a touch with zero movement, but the pan also wants to start.
-            // UIKit disambiguates by waiting for movement; if there is none
-            // by the time the touch ends, the tap wins. The default delegate
-            // behavior already handles this — we just need to make sure all
-            // recognizers can run alongside each other.
             func gestureRecognizer(
                 _ g: UIGestureRecognizer,
                 shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
             ) -> Bool {
-                // Move + scroll need to coexist (different finger counts).
-                // Tap and long-press need to coexist with the pan recognizers
-                // because they all track touches that may or may not become drags.
+                // CRITICAL: 1-finger pan and 2-finger pan must NOT run
+                // simultaneously. They both track touches and would stomp
+                // on each other's translation state, which manifested in
+                // v0.2.6 as the trackpad freezing during 2-finger scroll.
+                if let p1 = g as? UIPanGestureRecognizer,
+                   let p2 = other as? UIPanGestureRecognizer,
+                   p1.maximumNumberOfTouches != p2.maximumNumberOfTouches {
+                    return false
+                }
+                // Everything else can coexist (taps, long-press, the
+                // pan that's actually active for the current touch count).
                 return true
             }
         }
