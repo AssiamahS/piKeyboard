@@ -1,0 +1,3 @@
+so i want a https://apps.apple.com/us/app/remote-pi/id624473995 new more modern version of this right but i dont need all the fluff this one prob has a lot of great stuff right but maybe on the next version https://apps.apple.com/us/app/simplepi-for-raspberry-pi/id1524142767 everty version just bump name on githubhttps://github.com/AssiamahS/piKeyboard so go build it with a ui like this (
+https://apps.apple.com/us/app/mobile-mouse-bluetooth-remote/id6749246683 so it has apple watch ip ad and iphone and mac and it will work on pi5 so i can plug in my iphone into the pi5 and it will let me use the keyboard ( like the one here in
+mobilemouse bleutooth remote
