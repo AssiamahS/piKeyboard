@@ -162,7 +162,8 @@ private struct ControlView: View {
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.top, 8)
+        .padding(.bottom, 10)
         .background(Theme.bg)
     }
 

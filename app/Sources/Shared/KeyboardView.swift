@@ -33,7 +33,9 @@ struct KeyboardView: View {
             }
             arrowPad
         }
-        .padding(12)
+        .padding(.horizontal, 14)
+        .padding(.top, 14)
+        .padding(.bottom, 12)
     }
 
     private var textField: some View {
